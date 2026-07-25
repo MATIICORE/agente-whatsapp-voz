@@ -1,0 +1,7 @@
+# La llave nunca va en git ni se comparte
+.env
+
+# archivos temporales
+__pycache__/
+*.pyc
+.DS_Store

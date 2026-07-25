@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo agente</title>
+<style>
+  :root {
+    --fondo:#0b141a; --barra:#202c33; --propio:#005c4b; --ajeno:#202c33;
+    --texto:#e9edef; --tenue:#8696a0; --verde:#00a884;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-font-smoothing:antialiased; }
+  body {
+    background:#111b21; color:var(--texto); height:100vh; display:grid; place-items:center;
+    font:15px/1.4 -apple-system,"Segoe UI",Helvetica,sans-serif;
+  }
+
+  .telefono {
+    width:min(420px,96vw); height:min(860px,96vh);
+    background:var(--fondo); border-radius:26px; overflow:hidden;
+    display:flex; flex-direction:column; box-shadow:0 30px 90px rgba(0,0,0,.6);
+  }
+
+  header {
+    background:var(--barra); padding:14px 16px; display:flex; align-items:center; gap:12px; flex:none;
+  }
+  .avatar {
+    width:40px; height:40px; border-radius:50%; background:var(--verde);
+    display:grid; place-items:center; font-size:19px; flex:none;
+  }
+  .quien b { display:block; font-size:15px; font-weight:600; }
+  .quien span { font-size:12.5px; color:var(--verde); }
+
+  #chat {
+    flex:1; overflow-y:auto; padding:18px 14px; display:flex; flex-direction:column; gap:9px;
+    background-image:radial-gradient(circle at 20% 30%, #16232b 0%, transparent 45%),
+                     radial-gradient(circle at 80% 70%, #16232b 0%, transparent 45%);
+  }
+
+  .msg {
+    max-width:82%; padding:8px 11px 7px; border-radius:9px; position:relative;
+    font-size:14.6px; white-space:pre-wrap; word-wrap:break-word;
+    animation:entra .22s ease-out;
+  }
+  @keyframes entra { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+  .yo    { align-self:flex-end;   background:var(--propio); border-bottom-right-radius:2px; }
+  .ellos { align-self:flex-start; background:var(--ajeno);  border-bottom-left-radius:2px; }
+  .hora { font-size:10.5px; color:var(--tenue); text-align:right; margin-top:3px; }
+
+  /* nota de voz */
+  .voz { display:flex; align-items:center; gap:10px; min-width:210px; }
+  .voz button {
+    width:32px; height:32px; border-radius:50%; border:0; background:var(--verde);
+    color:#fff; font-size:13px; cursor:pointer; flex:none;
+  }
+  .onda { flex:1; height:22px; display:flex; align-items:center; gap:2px; }
+  .onda i {
+    flex:1; background:var(--tenue); border-radius:2px; opacity:.55;
+    height:calc(4px + var(--h,6px));
+  }
+  .voz.sonando .onda i { background:var(--verde); opacity:1; animation:pulso .5s infinite alternate; }
+  @keyframes pulso { to { transform:scaleY(1.7) } }
+
+  .transcrito { font-size:12.5px; color:var(--tenue); font-style:italic; margin-top:6px; }
+  .escalar {
+    align-self:center; background:#3b2a12; color:#ffcf7a; font-size:12px;
+    padding:6px 12px; border-radius:20px; border:1px solid #6b4a1a;
+  }
+  .escribiendo { align-self:flex-start; color:var(--tenue); font-size:13px; padding:6px 4px; }
+
+  footer { background:var(--barra); padding:10px 12px; display:flex; gap:9px; align-items:center; flex:none; }
+  #txt {
+    flex:1; background:#2a3942; border:0; border-radius:20px; padding:11px 15px;
+    color:var(--texto); font-size:14.6px; outline:none;
+  }
+  footer button {
+    width:42px; height:42px; border-radius:50%; border:0; background:var(--verde);
+    color:#fff; font-size:17px; cursor:pointer; flex:none;
+  }
+  footer button:active { transform:scale(.93); }
+  #mic.grabando { background:#e5484d; animation:lat .8s infinite; }
+  @keyframes lat { 50% { transform:scale(1.12) } }
+
+  #costo {
+    position:fixed; bottom:14px; right:16px; font-size:11.5px; color:#4a5b66;
+    font-variant-numeric:tabular-nums;
+  }
+</style>
+</head>
+<body>
+
+<div class="telefono">
+  <header>
+    <div class="avatar">🐾</div>
+    <div class="quien">
+      <b id="nombre">Veterinaria</b>
+      <span>en línea</span>
+    </div>
+  </header>
+
+  <div id="chat"></div>
+
+  <footer>
+    <input id="txt" placeholder="Escribe un mensaje" autocomplete="off">
+    <button id="mic" title="Mantener para grabar">🎤</button>
+    <button id="enviar">➤</button>
+  </footer>
+</div>
+
+<div id="costo"></div>
+
+<script>
+const chat = document.getElementById('chat');
+const txt  = document.getElementById('txt');
+let gastado = 0;
+
+fetch('/negocio').then(r => r.json())
+  .then(n => document.getElementById('nombre').textContent = n.nombre)
+  .catch(() => {});
+
+const hora = () => new Date().toLocaleTimeString('es-CL', {hour:'2-digit', minute:'2-digit'});
+const abajo = () => chat.scrollTop = chat.scrollHeight;
+
+function burbuja(texto, mia, extra = '') {
+  const d = document.createElement('div');
+  d.className = 'msg ' + (mia ? 'yo' : 'ellos');
+  d.innerHTML = `${texto.replace(/</g,'&lt;')}${extra}<div class="hora">${hora()}</div>`;
+  chat.appendChild(d); abajo(); return d;
+}
+
+function notaDeVoz(url, mia, transcrito, autoreproducir = true) {
+  const barras = Array.from({length:26}, () =>
+    `<i style="--h:${Math.random()*16}px"></i>`).join('');
+  const d = document.createElement('div');
+  d.className = 'msg ' + (mia ? 'yo' : 'ellos');
+  d.innerHTML = `
+    <div class="voz">
+      <button>▶</button>
+      <div class="onda">${barras}</div>
+    </div>
+    ${transcrito ? `<div class="transcrito">${transcrito}</div>` : ''}
+    <div class="hora">${hora()}</div>`;
+  chat.appendChild(d); abajo();
+
+  if (url) {
+    const audio = new Audio(url);
+    const caja = d.querySelector('.voz'), btn = d.querySelector('button');
+    btn.onclick = () => audio.paused ? audio.play() : audio.pause();
+    audio.onplay  = () => { caja.classList.add('sonando'); btn.textContent = '⏸'; };
+    audio.onpause = audio.onended = () => { caja.classList.remove('sonando'); btn.textContent = '▶'; };
+    // La respuesta del agente suena sola. La nota del propio cliente no: sería raro
+    // escucharse a uno mismo, y Chrome bloquea el autoplay sin interacción previa.
+    if (autoreproducir) audio.play().catch(() => {});
+  }
+  return d;
+}
+
+function escribiendo() {
+  const d = document.createElement('div');
+  d.className = 'escribiendo';
+  d.textContent = 'escribiendo…';
+  chat.appendChild(d); abajo();
+  return d;
+}
+
+function mostrar(d) {
+  if (d.error) { burbuja('⚠️ ' + d.error, false); return; }
+  if (d.audio) notaDeVoz(d.audio, false, d.texto);
+  else burbuja(d.texto, false);
+
+  (d.marcas || []).forEach(m => {
+    const e = document.createElement('div');
+    e.className = 'escalar';
+    e.textContent = '⚙️ ' + m.replace(/[\[\]]/g, '');
+    chat.appendChild(e);
+  });
+
+  gastado += (d.costo || 0);
+  document.getElementById('costo').textContent =
+    `$${gastado.toFixed(0)} en toda la conversación`;
+  abajo();
+}
+
+async function enviarTexto() {
+  const t = txt.value.trim(); if (!t) return;
+  txt.value = '';
+  burbuja(t, true);
+  const esc = escribiendo();
+  try {
+    const r = await fetch('/mensaje', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({texto: t, con_voz: true})
+    });
+    esc.remove(); mostrar(await r.json());
+  } catch (e) { esc.remove(); burbuja('⚠️ sin conexión con el servidor', false); }
+}
+
+document.getElementById('enviar').onclick = enviarTexto;
+txt.onkeydown = e => { if (e.key === 'Enter') enviarTexto(); };
+
+// ── grabar nota de voz ─────────────────────────────────────────────────────
+// Un clic empieza, otro termina. Antes había que MANTENER apretado y no se
+// entendía: un clic normal grababa cero segundos y parecía que estaba roto.
+const mic = document.getElementById('mic');
+let grabadora, trozos = [], grabando = false;
+
+async function empezar() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    grabadora = new MediaRecorder(stream);
+    trozos = [];
+
+    grabadora.ondataavailable = e => { if (e.data.size) trozos.push(e.data); };
+
+    grabadora.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(trozos, {type:'audio/webm'});
+
+      if (blob.size < 2000) {          // menos de eso es un clic sin voz
+        burbuja('⚠️ no se grabó nada. Habla y después aprieta ⏹', false);
+        return;
+      }
+
+      const mia = notaDeVoz(URL.createObjectURL(blob), true, null, false);
+      const esc = escribiendo();
+      try {
+        const r = await fetch('/nota', {method:'POST', body: blob});
+        const d = await r.json();
+        esc.remove();
+        if (d.dijo) {
+          mia.insertAdjacentHTML('beforeend',
+            `<div class="transcrito">${d.dijo}</div>`);
+        }
+        mostrar(d);
+      } catch (e) {
+        esc.remove();
+        burbuja('⚠️ no se pudo enviar el audio', false);
+      }
+    };
+
+    grabadora.start();
+    grabando = true;
+    mic.classList.add('grabando');
+    mic.textContent = '⏹';
+    txt.placeholder = 'Grabando… aprieta ⏹ cuando termines';
+  } catch (e) {
+    burbuja('⚠️ Chrome no me dio el micrófono. Revisa el candado 🔒 de la barra de direcciones.', false);
+  }
+}
+
+function parar() {
+  if (grabadora && grabadora.state === 'recording') grabadora.stop();
+  grabando = false;
+  mic.classList.remove('grabando');
+  mic.textContent = '🎤';
+  txt.placeholder = 'Escribe un mensaje';
+}
+
+mic.onclick = () => grabando ? parar() : empezar();
+
+burbuja('Hola, ¿en qué le puedo ayudar?', false);
+</script>
+</body>
+</html>
