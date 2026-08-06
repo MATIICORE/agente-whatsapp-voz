@@ -30,10 +30,14 @@ agente.py       el cerebro — API de Anthropic, modelo Haiku
 voz.py          escuchar (Whisper local) y hablar (ElevenLabs)
 agenda.py       lee el Google Calendar por iCal
 flujo.py        el ciclo completo: entra audio → sale audio
-demo/           una pantalla que imita WhatsApp, para mostrarlo
+whatsapp.py     el puente a la Meta Cloud API — esto es lo que corre en producción
+verificar-meta.py  valida las llaves contra la API de Meta antes de configurar nada
+arrancar.sh     levanta agente y túnel, e imprime la dirección lista para pegar
+estado.sh       responde en 5 segundos si está vivo, sin entrar a Meta
+demo/           una pantalla que imita WhatsApp, para mostrarlo sin conectar nada
 ```
 
-Sin dependencias externas para hablar con la API: solo `urllib` de la librería
+Sin dependencias externas para hablar con las APIs: solo `urllib` de la librería
 estándar. Corre en cualquier Mac sin instalar nada.
 
 ## Correrlo
@@ -43,6 +47,65 @@ cp .env.ejemplo .env      # y poner las llaves
 python3 agente.py         # conversación por terminal
 python3 demo/servidor.py  # demo web en http://localhost:7500
 ```
+
+Para conectarlo a WhatsApp de verdad: [`CONECTAR-WHATSAPP.md`](CONECTAR-WHATSAPP.md).
+
+---
+
+## En producción, sobre la Meta Cloud API
+
+`whatsapp.py` es el puente a WhatsApp. Se eligió la **Meta Cloud API** y no las
+alternativas por dos motivos concretos: Twilio cobra por mensaje, y las librerías que
+manejan WhatsApp Web (Baileys, whatsapp-web.js) **banean el número**. Para el negocio
+de un cliente, eso no es una opción.
+
+Un dato que cambia el modelo de negocio: **Meta no cobra por responder.** Cuando un
+cliente escribe se abre una ventana de 24 horas y todo lo que el agente conteste ahí
+vale cero. Solo se cobran las plantillas que inicia el negocio, y el agente no hace
+eso.
+
+### Lo que hubo que resolver para que aguantara
+
+**Verificar la firma de cada POST.** Meta firma cada webhook con
+`X-Hub-Signature-256`. Sin comprobarla, la dirección del webhook es una puerta
+abierta: cualquiera que la sepa inyecta mensajes falsos y gasta la cuenta de API del
+negocio. Se compara con `hmac.compare_digest`, no con `==`.
+
+**Responder 200 al instante y pensar en otro hilo.** Si el webhook tarda, Meta
+reenvía el mismo mensaje una y otra vez y el agente entra en bucle contestando lo
+mismo.
+
+**Un candado por número.** Dos mensajes seguidos del mismo cliente se procesaban en
+paralelo y el segundo pisaba el historial del primero. Con notas de voz era casi
+seguro que pasara, porque cada una tarda entre 6 y 8 segundos entre transcribir,
+pensar y hablar.
+
+**La memoria va a disco, no a RAM.** Estaba solo en memoria y falló de verdad: al
+reiniciar el agente para actualizar el código, un cliente en pleno diálogo tuvo que
+repetir lo que ya había dicho. Ahora vive en `conversaciones.json` y se limpia sola a
+las 24 horas, que es lo que dura la ventana de WhatsApp. Ese archivo está en
+`.gitignore`: lleva nombres, teléfonos y consultas reales, y este repo es público.
+
+**WhatsApp no entiende markdown.** El modelo escribía `**Plan mensual**` y al cliente
+le llegaban los asteriscos en pantalla. Pedírselo en el prompt no bastó, es como
+aprendió a escribir. Se corrige en el código, en `a_formato_whatsapp()`, antes de
+enviar.
+
+> Cuando una salida tiene que cumplir un formato exacto, se arregla en el código, no
+> pidiéndoselo al modelo.
+
+**Responde en el formato en que le hablan.** Si el cliente escribe, contesta escrito.
+Si manda un audio, contesta con audio. La nota de voz se sube a Meta como **ogg/opus**:
+en mp3 llega como archivo adjunto que hay que descargar, y pierde toda la gracia.
+
+### El paso que no está en ningún tutorial
+
+Suscribirse al campo `messages` en la app **no alcanza**. Hay que suscribir la cuenta
+de WhatsApp (WABA) a la app con `POST /{WABA_ID}/subscribed_apps`. Sin eso Meta
+verifica el webhook, la pantalla dice "Suscrito", y no llega ni un mensaje: los
+eventos se van a la app de pruebas que Meta trae enganchada de fábrica.
+
+Se diagnostica con `GET /{WABA_ID}/subscribed_apps`. Si tu app no aparece ahí, es eso.
 
 ---
 
@@ -86,6 +149,28 @@ inventar. En vez de `"Peluquería grande: $28.000"`, va
 `"Peluquería grande: $28.000 — incluye baño, corte y secado. No incluye uñas."`
 
 Esa es la parte aburrida del trabajo y es la que decide si el agente sirve.
+
+### Se despidió con una fecha que nadie le había dicho
+
+Apareció ya conectado a WhatsApp de verdad. Se agendó peluquería para el **lunes
+a las 17:00**, y cuando el cliente cerró con un *"ok, gracias, nos vemos ahí"*,
+el agente respondió: *"De nada, queda agendado. Nos vemos el **martes a las
+10:00**"*.
+
+Nadie había mencionado nunca ese día ni esa hora.
+
+Lo que pasó es que ese mensaje le llegó **sin el historial de la conversación**.
+Y ahí está lo interesante: teniendo cero información, no dijo que no sabía.
+Rellenó el hueco con una fecha que sonaba razonable y la afirmó con total
+seguridad.
+
+**La lección:** un modelo sin contexto no se queda callado, improvisa. Y una
+fecha inventada es peor que un precio inventado, porque el cliente llega el día
+equivocado y el negocio pierde la hora y al cliente.
+
+Se arregló con una instrucción explícita para las despedidas: si el día y la
+hora no están escritos en la conversación, preguntar. Verificado después:
+ahora responde *"Perfecto. ¿Me confirma el día y la hora que quedamos?"*.
 
 ### Confirmó una hora que estaba ocupada
 

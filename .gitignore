@@ -1,7 +1,15 @@
-# La llave nunca va en git ni se comparte
+# Las llaves nunca van en git ni se comparten.
+# El patron cubre los respaldos: .env.bak-27jul, .env.bak-antes-permanente, etc.
+# Sin la segunda linea, un "git add -A" los sube a este repo, que es publico.
 .env
+.env.*
+!.env.ejemplo
 
 # archivos temporales
 __pycache__/
 *.pyc
 .DS_Store
+
+# Conversaciones de clientes. NUNCA a git: este repo es público.
+conversaciones.json
+conversaciones.json.tmp

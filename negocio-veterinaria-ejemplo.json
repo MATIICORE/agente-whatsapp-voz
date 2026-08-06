@@ -1,0 +1,117 @@
+{
+  "_nota": "Datos FICTICIOS con precios reales de mercado chileno 2026. Sirve para demo sin exponer a ningún lead. Al vender, se reemplaza por los datos del cliente.",
+  "nombre": "Veterinaria San Martín",
+  "comuna": "Quillota",
+  "direccion": "San Martín 412, Quillota",
+  "telefono": "+56 9 1234 5678",
+  "horarios": {
+    "lunes_a_viernes": "9:00 a 19:00",
+    "sabado": "10:00 a 14:00",
+    "domingo": "cerrado",
+    "urgencias": "Fuera de horario derivamos a la Clínica Veterinaria de Urgencias en La Cruz, +56 9 8765 4321"
+  },
+  "servicios": [
+    {
+      "nombre": "Consulta general",
+      "precio": 25000,
+      "duracion_min": 30
+    },
+    {
+      "nombre": "Consulta de urgencia",
+      "precio": 35000,
+      "duracion_min": 30
+    },
+    {
+      "nombre": "Vacuna séxtuple (perro)",
+      "precio": 22000,
+      "duracion_min": 15
+    },
+    {
+      "nombre": "Vacuna triple felina",
+      "precio": 20000,
+      "duracion_min": 15
+    },
+    {
+      "nombre": "Vacuna antirrábica",
+      "precio": 15000,
+      "duracion_min": 15
+    },
+    {
+      "nombre": "Desparasitación interna",
+      "precio": 12000,
+      "duracion_min": 15
+    },
+    {
+      "nombre": "Esterilización gata",
+      "precio": 75000,
+      "duracion_min": 90
+    },
+    {
+      "nombre": "Esterilización gato",
+      "precio": 55000,
+      "duracion_min": 60
+    },
+    {
+      "nombre": "Esterilización perra (hasta 15 kg)",
+      "precio": 110000,
+      "duracion_min": 120
+    },
+    {
+      "nombre": "Esterilización perra (sobre 15 kg)",
+      "precio": 145000,
+      "duracion_min": 120
+    },
+    {
+      "nombre": "Esterilización perro (hasta 15 kg)",
+      "precio": 85000,
+      "duracion_min": 90
+    },
+    {
+      "nombre": "Limpieza dental",
+      "precio": 95000,
+      "duracion_min": 90
+    },
+    {
+      "nombre": "Peluquería canina (chico)",
+      "precio": 18000,
+      "duracion_min": 60
+    },
+    {
+      "nombre": "Peluquería canina (grande)",
+      "precio": 28000,
+      "duracion_min": 90
+    },
+    {
+      "nombre": "Corte de uñas",
+      "precio": 6000,
+      "duracion_min": 15
+    }
+  ],
+  "no_hacemos": [
+    "Cirugías traumatológicas complejas (derivamos a especialista en Viña)",
+    "Atención de animales exóticos: aves, reptiles, conejos",
+    "Hospitalización de más de 24 horas",
+    "Eutanasia a domicilio"
+  ],
+  "formas_de_pago": [
+    "efectivo",
+    "débito",
+    "crédito hasta 3 cuotas sin interés",
+    "transferencia"
+  ],
+  "reglas": [
+    "La esterilización requiere 8 horas de ayuno previo",
+    "Las vacunas necesitan que el animal esté sano; si tiene fiebre o diarrea se posterga",
+    "Para la primera consulta pedimos traer el carnet de vacunas si lo tienen",
+    "No atendemos sin hora salvo urgencias reales"
+  ],
+  "escalar_a_humano": [
+    "el animal está grave, sangrando, convulsionando o atropellado",
+    "reclamos o algo salió mal en una atención anterior",
+    "piden un diagnóstico o dicen qué tiene su mascota",
+    "preguntan por un tratamiento que ya está en curso",
+    "cualquier cosa que no esté en esta información"
+  ],
+  "calendario_ical": "en-el-.env",
+  "voz_id": "ajOR9IDAaubDK5qtLUqQ"
+}

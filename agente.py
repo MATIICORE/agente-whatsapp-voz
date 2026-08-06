@@ -12,7 +12,7 @@ Uso:
     python3 agente.py                  modo conversación
     python3 agente.py "tu pregunta"    una sola pregunta
 """
-import json, os, sys, urllib.error, urllib.request
+import json, os, re, sys, urllib.error, urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 NEGOCIO = os.path.join(BASE, "negocio.json")
@@ -50,29 +50,51 @@ def pesos(n):
 
 
 def ficha_del_negocio(n):
-    """La 'memoria' del agente: todo lo que sabe del negocio, en texto plano."""
+    """La 'memoria' del agente: todo lo que sabe del negocio, en texto plano.
+
+    Todo campo se lee con .get(). NINGÚN negocio tiene la misma ficha: una
+    veterinaria cobra por consulta de 30 minutos y un gimnasio vende planes
+    mensuales sin duración. Antes esto reventaba con KeyError ante un campo
+    ausente y el agente NO RESPONDÍA NADA: el cliente ve silencio, no un error.
+    Un campo que falta ahora simplemente no se escribe en la ficha.
+    """
+    dir_completa = n.get("direccion", "")
+    comuna = n.get("comuna", "")
     # la comuna solo se agrega si la dirección no la trae ya
-    dir_completa = n["direccion"]
-    if n["comuna"].lower() not in dir_completa.lower():
-        dir_completa += f", {n['comuna']}"
+    if comuna and comuna.lower() not in dir_completa.lower():
+        dir_completa = f"{dir_completa}, {comuna}".strip(", ")
 
-    p = [f"NEGOCIO: {n['nombre']} — {dir_completa}",
-         f"TELÉFONO: {n['telefono']}", "", "HORARIOS:"]
-    for k, v in n["horarios"].items():
-        p.append(f"  {k.replace('_', ' ')}: {v}")
+    p = [f"NEGOCIO: {n.get('nombre', '')}" + (f" — {dir_completa}" if dir_completa else "")]
+    if n.get("telefono"):
+        p.append(f"TELÉFONO: {n['telefono']}")
 
-    p += ["", "SERVICIOS Y PRECIOS:"]
-    for s in n["servicios"]:
-        p.append(f"  {s['nombre']}: {pesos(s['precio'])} ({s['duracion_min']} min)")
+    if n.get("horarios"):
+        p += ["", "HORARIOS:"]
+        for k, v in n["horarios"].items():
+            p.append(f"  {k.replace('_', ' ')}: {v}")
 
-    p += ["", "LO QUE NO HACEMOS:"]
-    p += [f"  - {x}" for x in n["no_hacemos"]]
+    if n.get("servicios"):
+        p += ["", "SERVICIOS Y PRECIOS:"]
+        for s in n["servicios"]:
+            linea = f"  {s.get('nombre', '')}"
+            # precio None = "se cotiza": decirlo es mejor que callarlo, porque
+            # es justo el caso en que el agente tiene que derivar a una persona.
+            linea += f": {pesos(s['precio'])}" if s.get("precio") else ": a convenir"
+            if s.get("duracion_min"):
+                linea += f" ({s['duracion_min']} min)"
+            if s.get("detalle"):
+                linea += f" — {s['detalle']}"
+            p.append(linea)
 
-    p += ["", "FORMAS DE PAGO: " + ", ".join(n["formas_de_pago"]), "", "REGLAS:"]
-    p += [f"  - {x}" for x in n["reglas"]]
+    for clave, titulo in (("no_hacemos", "LO QUE NO HACEMOS:"),
+                          ("reglas", "REGLAS:"),
+                          ("escalar_a_humano", "PASAR A UNA PERSONA CUANDO:")):
+        if n.get(clave):
+            p += ["", titulo] + [f"  - {x}" for x in n[clave]]
 
-    p += ["", "PASAR A UNA PERSONA CUANDO:"]
-    p += [f"  - {x}" for x in n["escalar_a_humano"]]
+    if n.get("formas_de_pago"):
+        p += ["", "FORMAS DE PAGO: " + ", ".join(n["formas_de_pago"])]
+
     return "\n".join(p)
 
 
@@ -99,7 +121,7 @@ def horas_libres(dia=None):
 
 def instrucciones(negocio):
     return f"""Eres quien contesta el WhatsApp de {negocio['nombre']}.
-No eres un asistente de IA: eres la recepción de la veterinaria.
+No eres un asistente de IA: eres la recepción de este negocio.
 
 === TODO LO QUE SABES ===
 {ficha_del_negocio(negocio)}
@@ -111,21 +133,35 @@ No eres un asistente de IA: eres la recepción de la veterinaria.
 - Español de Chile, natural, como escribe una persona por WhatsApp.
 - Corto. Dos o tres líneas. Nadie lee párrafos en WhatsApp.
 - 🔴 SIEMPRE DE USTED, en todo el mensaje, sin excepción.
-  Nunca mezclar. Escribir "su mascota", "le acomoda", "¿necesita?".
-  Nunca "tu mascota", "te acomoda", "¿necesitas?".
+  Nunca mezclar. Escribir "le acomoda", "¿necesita?", "su consulta".
+  Nunca "te acomoda", "¿necesitas?", "tu consulta".
   Mezclar los dos tratos en el mismo mensaje se nota y suena a robot.
 - 🔴 CERO EMOJIS. Ni uno, aunque la frase sea triste o simpática.
   Solo si la otra persona usó emojis primero, ahí puedes usar uno.
+- 🔴 WhatsApp NO entiende markdown. La negrita va con UN asterisco: *así*.
+  Si escribes **así**, al cliente le llegan los asteriscos en pantalla y se ve
+  a medio hacer. Nada de ##, guiones de lista ni ```. Texto plano y punto.
 - Nunca digas que eres un bot ni un asistente virtual. Tampoco lo niegues si
   preguntan directo: en ese caso di que puedes ayudar con horas e información y
   que para lo demás pasas con alguien del equipo.
 
 === LAS TRES REGLAS QUE NO SE ROMPEN ===
 
-1. SOLO DICES LO QUE ESTÁ ARRIBA.
-   Si te preguntan un precio que no está en la lista, no lo inventas: dices que
-   lo confirmas con el equipo. Un precio inventado le cuesta plata al negocio y
-   la confianza al cliente.
+1. SOLO DICES LO QUE ESTÁ ARRIBA. CUALQUIER DATO, NO SOLO LOS PRECIOS.
+
+   Precios, horarios, servicios, condiciones, convenios, descuentos, promociones,
+   estacionamiento, si aceptan tal cosa: si no está escrito arriba, NO LO SABES.
+
+   🔴 Y "no saberlo" NO es decir que sí y después confirmar.
+   Nunca empieces con "Sí, tenemos..." o "Sí, trabajamos con..." para algo que
+   no está arriba. Eso ya es una promesa, y el cliente se queda con el sí aunque
+   después la corrijan.
+
+   MAL:  "Sí, trabajamos con convenios de empresa. Déjeme confirmar los detalles."
+   BIEN: "Eso lo maneja directamente el equipo, déjeme consultarlo y le confirmo."
+
+   Fíjate en la diferencia: la primera afirma que existen, la segunda no afirma
+   nada. Si resulta que el negocio NO tiene convenios, la primera ya mintió.
 
 2. NO DIAGNOSTICAS NUNCA.
    Si describen síntomas, no dices qué puede ser ni si es grave ni qué hacer.
@@ -138,6 +174,24 @@ No eres un asistente de IA: eres la recepción de la veterinaria.
    Esa marca la lee el sistema, el cliente no la ve.
 
 === AGENDAR ===
+
+🔴 NUNCA REPITAS UNA FECHA U HORA QUE NO ESTÉ ESCRITA EN ESTA CONVERSACIÓN.
+
+Si la persona se despide con un "ya, gracias, nos vemos" y tú NO tienes arriba
+el día y la hora que quedaron, **no los inventes**. Preguntas:
+
+  "Perfecto. ¿Me confirma el día y la hora que quedamos?"
+
+Suena peor decir eso que soltar una fecha con seguridad, y aun así es lo
+correcto. Una hora inventada hace que el cliente llegue el día equivocado, y
+eso el negocio lo paga con un cliente enojado y una hora perdida.
+
+**Esto ya pasó de verdad**: se agendó peluquería para el lunes a las 17:00 y al
+despedirse el agente dijo "nos vemos el martes a las 10:00". Nadie se lo había
+dicho: sonaba razonable y con eso bastó.
+
+Vale igual para el nombre, el servicio y el precio. Si no está
+escrito arriba, no lo sabes.
 
 🔴 ANTES DE DECIR QUE SÍ A UNA HORA, BÚSCALA EN LA LISTA DE ARRIBA.
 
@@ -159,6 +213,24 @@ Para agendar necesitas: qué servicio, para qué mascota, y qué día.
 Cuando queden de acuerdo, cierras respondiendo:
 [AGENDAR: servicio | día | hora | nombre de la mascota]
 """
+
+
+def a_formato_whatsapp(texto):
+    """Markdown → lo que WhatsApp sí entiende.
+
+    Al modelo se le pide en el prompt que no use markdown y aun así lo usa: es
+    la forma en que aprendió a escribir. Pedirlo no basta, así que se corrige
+    acá. WhatsApp marca negrita con UN asterisco (*así*); con dos, al cliente le
+    llegan los asteriscos en pantalla y el mensaje se ve a medio hacer.
+    """
+    if not texto:
+        return texto
+    texto = re.sub(r"\*\*\*(.+?)\*\*\*", r"*\1*", texto, flags=re.S)  # ***x*** → *x*
+    texto = re.sub(r"\*\*(.+?)\*\*", r"*\1*", texto, flags=re.S)      # **x**   → *x*
+    texto = re.sub(r"(?m)^#{1,6}\s*", "", texto)                       # títulos
+    texto = re.sub(r"(?m)^[ \t]*[-*+][ \t]+", "• ", texto)             # viñetas
+    texto = texto.replace("```", "")
+    return texto.strip()
 
 
 def responder(mensaje, historial=None):
@@ -199,7 +271,7 @@ def responder(mensaje, historial=None):
         u = d.get("usage", {})
         # Haiku: US$1 por millón de tokens de entrada, US$5 de salida
         costo = (u.get("input_tokens", 0) / 1e6 * 1 + u.get("output_tokens", 0) / 1e6 * 5) * 950
-        return texto.strip(), costo
+        return a_formato_whatsapp(texto.strip()), costo
     except urllib.error.HTTPError as e:
         detalle = e.read().decode()[:250]
         if e.code == 401:
