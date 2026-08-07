@@ -178,13 +178,54 @@ Le pidieron el lunes a las 10:00, que estaba tomado, **y dijo que sí**. El agen
 tenía la lista de horas libres correcta en su contexto. No la revisó antes de
 responder.
 
-Se arregló con una instrucción explícita de buscar la hora en la lista antes de
-confirmar, y explicando la consecuencia concreta: el cliente llega y hay otro animal
-en la mesa. Verificado después en los dos sentidos: hora ocupada la rechaza y ofrece
-alternativas reales, hora libre la confirma.
+Se intentó arreglar con una instrucción explícita en el prompt: buscar la hora en la
+lista antes de confirmar, con la consecuencia escrita al lado (el cliente llega y hay
+otro animal en la mesa). Se probó, pasó, y quedó dado por resuelto.
 
-> **Que el modelo tenga el dato correcto no basta. Hay que decirle explícitamente que
-> lo verifique.**
+### 🔴 No estaba resuelto, y así se descubrió
+
+**Volviendo a probarlo el 6-ago apareció otra vez, y peor.** La prueba original se
+había hecho de una sola forma: pedir una hora ocupada al inicio de una conversación
+limpia. Nadie lo había probado **cambiando de hora a mitad de conversación**, que es
+lo que hace cualquier persona de verdad.
+
+    Cliente: quiero el lunes 28 a las 10:00     → el agente confirma, y es correcto
+    Cliente: mejor a las 11:00 ese mismo día    → CONFIRMA, y las 11:00 no están libres
+
+Y hay un segundo fallo que no se había visto nunca: al rechazar una hora ocupada,
+**inventa la alternativa**. Ofreció "el lunes 10", un día que no existe en ninguna
+agenda. En otra prueba llegó a listar cinco días inventados seguidos.
+
+**La causa de fondo:** la agenda son nombres de día con número ("lunes 28") y el
+agente no sabe qué día es hoy. Eso lo empuja a completar un calendario que no tiene.
+
+### Cómo quedó arreglado: en código, no en el prompt
+
+La instrucción del prompt sigue ahí y ayuda, pero ya se demostró que no basta. Ahora
+`verificar_agenda()` revisa la respuesta **antes de que salga**: extrae cada día y
+cada hora que el agente menciona, los compara con la agenda real, y si algo no existe
+la respuesta no se envía. En su lugar va una lista construida desde la agenda, que no
+puede estar mal porque no la escribe el modelo.
+
+Detalle que costó y vale la pena contar: la primera versión bloqueaba **respuestas
+correctas**. Leía "el lunes 10:00" como el día 10 en vez de como una hora, y también
+cruzaba todos los días con todas las horas de una misma frase, inventando
+combinaciones que nadie había dicho. **Bloquear lo bueno es tan grave como dejar
+pasar lo malo**: un sistema que se traba con respuestas válidas termina apagado.
+
+Se prueba solo, con 15 casos (5 que debe bloquear, 10 que debe dejar pasar):
+
+```bash
+python3 probar-agenda.py
+```
+
+> **Que el modelo tenga el dato correcto no basta, y pedírselo en mayúsculas tampoco.
+> Si una salida tiene que cumplir una condición verificable, se verifica en código.**
+
+> **Y la lección de método, que fue la que realmente falló:** este bug se dio por
+> resuelto porque se probó de una sola manera. Un caso de prueba que solo cubre el
+> camino que ya imaginaste no prueba nada. Hay que probar lo que hace la gente, no lo
+> que uno diseñó.
 
 ---
 

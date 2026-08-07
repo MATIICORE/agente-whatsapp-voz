@@ -121,10 +121,22 @@ fetch('/negocio').then(r => r.json())
 const hora = () => new Date().toLocaleTimeString('es-CL', {hour:'2-digit', minute:'2-digit'});
 const abajo = () => chat.scrollTop = chat.scrollHeight;
 
+// WhatsApp renderiza *negrita*, _cursiva_ y ~tachado~. Esta demo imita WhatsApp,
+// así que tiene que renderizarlos igual: sin esto el agente responde correctamente
+// pero en pantalla salen los asteriscos crudos, y quien mire la demo va a pensar
+// que el sistema está a medio hacer. El escapado de < va PRIMERO, siempre.
+function formatoWhatsApp(t) {
+  return t
+    .replace(/</g, '&lt;')
+    .replace(/(^|\s)\*([^*\n]+)\*(?=$|[\s.,;:!?)])/g, '$1<strong>$2</strong>')
+    .replace(/(^|\s)_([^_\n]+)_(?=$|[\s.,;:!?)])/g, '$1<em>$2</em>')
+    .replace(/(^|\s)~([^~\n]+)~(?=$|[\s.,;:!?)])/g, '$1<s>$2</s>');
+}
+
 function burbuja(texto, mia, extra = '') {
   const d = document.createElement('div');
   d.className = 'msg ' + (mia ? 'yo' : 'ellos');
-  d.innerHTML = `${texto.replace(/</g,'&lt;')}${extra}<div class="hora">${hora()}</div>`;
+  d.innerHTML = `${formatoWhatsApp(texto)}${extra}<div class="hora">${hora()}</div>`;
   chat.appendChild(d); abajo(); return d;
 }
 

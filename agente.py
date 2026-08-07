@@ -271,7 +271,21 @@ def responder(mensaje, historial=None):
         u = d.get("usage", {})
         # Haiku: US$1 por millón de tokens de entrada, US$5 de salida
         costo = (u.get("input_tokens", 0) / 1e6 * 1 + u.get("output_tokens", 0) / 1e6 * 5) * 950
-        return a_formato_whatsapp(texto.strip()), costo
+        salida = a_formato_whatsapp(texto.strip())
+
+        # Última barrera antes de que el cliente lea nada: si el agente nombró un
+        # día o una hora que no existen, no se envía. Vale más pedir un momento
+        # que mandar a alguien a la clínica un día equivocado.
+        ok, problemas = verificar_agenda(salida)
+        if not ok:
+            print(f"  ⚠️  respuesta bloqueada: {'; '.join(problemas)}")
+            marcas = [l for l in salida.split("\n")
+                      if l.strip().startswith(("[ESCALAR:", "[AGENDAR:"))]
+            salida = respuesta_segura()
+            if marcas:
+                salida += "\n" + "\n".join(marcas)
+
+        return salida, costo
     except urllib.error.HTTPError as e:
         detalle = e.read().decode()[:250]
         if e.code == 401:
@@ -290,6 +304,93 @@ def separar_marcas(texto):
         s = linea.strip()
         (marcas if s.startswith(("[ESCALAR:", "[AGENDAR:")) else limpio).append(s)
     return "\n".join(limpio).strip(), marcas
+
+
+DIAS = ("lunes", "martes", "miércoles", "miercoles", "jueves",
+        "viernes", "sábado", "sabado", "domingo")
+
+
+def _normaliza(s):
+    """miércoles → miercoles. El modelo escribe con y sin tilde indistintamente."""
+    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u")):
+        s = s.replace(a, b)
+    return s.lower().strip()
+
+
+def verificar_agenda(texto, agenda=None):
+    """Comprueba que los días y horas que el agente menciona EXISTAN de verdad.
+
+    Por qué está en código y no en el prompt: el prompt ya trae la instrucción
+    "antes de decir que sí a una hora, búscala en la lista", en mayúsculas y con
+    la consecuencia explicada. Aun así, probándolo en vivo el 6-ago:
+
+      · Al cambiar de hora a mitad de conversación confirmó las 11:00 de un día
+        en que las 11:00 no estaban libres.
+      · Al rechazar una hora ocupada ofreció como alternativa "el lunes 10",
+        un día que no existe en ninguna agenda.
+
+    Un modelo que tiene el dato correcto delante igual improvisa cuando el
+    historial se alarga. Pedírselo no basta; comprobarlo sí.
+
+    Devuelve (ok, problemas). No reescribe el texto: quien llama decide.
+    """
+    agenda = agenda if agenda is not None else cargar(AGENDA, {})
+    dias_reales = {_normaliza(k): v for k, v in agenda.items() if not k.startswith("_")}
+    if not dias_reales or not texto:
+        return True, []
+
+    problemas = []
+    # El (?![\d:]) es lo que separa "lunes 28" (día) de "lunes 10:00" (hora).
+    # Tiene que excluir dígitos además de los dos puntos: con solo (?!\s*:) el
+    # motor retrocede, prueba "1" en vez de "10", y el falso positivo vuelve.
+    # Sin él, "el lunes 10:00 está disponible" se lee como el día 10 y se
+    # bloquea una respuesta perfectamente correcta.
+    patron_dia = r"(" + "|".join(DIAS) + r")\s+(\d{1,2})(?![\d:])"
+    patron_hora = r"\b([01]?\d|2[0-3]):([0-5]\d)\b"
+
+    # Se evalúa oración por oración, y dentro de la oración CADA HORA SE ASOCIA
+    # AL DÍA QUE LA PRECEDE. Emparejar todos los días con todas las horas de la
+    # frase parece más seguro y no lo es: en "el lunes 28 a las 12:00 y el
+    # martes 29 a las 15:00" inventaría dos combinaciones que nadie dijo, y
+    # bloquearía una respuesta correcta. Bloquear lo bueno es tan malo como
+    # dejar pasar lo malo: si el agente se traba con respuestas válidas, deja
+    # de servir.
+    for frase in re.split(r"(?<=[.!?\n])\s+", texto):
+        f = _normaliza(frase)
+        dias = [(m.start(), f"{m.group(1)} {int(m.group(2))}")
+                for m in re.finditer(patron_dia, f)]
+        if not dias:
+            continue
+
+        for _, clave in dias:
+            if clave not in dias_reales:
+                problemas.append(f"el día «{clave}» no existe en la agenda")
+
+        for m in re.finditer(patron_hora, f):
+            previos = [d for d in dias if d[0] < m.start()]
+            if not previos:
+                continue  # hora suelta antes de nombrar cualquier día: no se juzga
+            clave = previos[-1][1]
+            if clave not in dias_reales:
+                continue  # ya se reportó como día inexistente
+            h = f"{int(m.group(1)):02d}:{m.group(2)}"
+            if h not in {x.strip() for x in dias_reales[clave]}:
+                problemas.append(f"«{clave} a las {h}» no está libre")
+
+    return (not problemas), problemas
+
+
+def respuesta_segura(agenda=None, maximo=4):
+    """Lo que se dice cuando la verificación falla. Solo horas que existen."""
+    agenda = agenda if agenda is not None else cargar(AGENDA, {})
+    reales = [(k, v) for k, v in agenda.items() if not k.startswith("_") and v]
+    if not reales:
+        return ("Déjeme revisar la agenda y le confirmo en un momento.")
+
+    lineas = [f"{dia} · {', '.join(horas[:3])}" for dia, horas in reales[:maximo]]
+    return ("Déjeme revisar bien la agenda para no darle una hora equivocada.\n\n"
+            "Estas son las que tengo libres:\n" + "\n".join(lineas) +
+            "\n\n¿Alguna de esas le acomoda?")
 
 
 def conversar():
